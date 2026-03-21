@@ -54,32 +54,35 @@ func bpfJump(code uint16, k uint32, jt, jf uint8) sockFilter {
 
 // 차단할 syscall 목록
 var blockedSyscalls = []uint32{
-	142, // SYS_REBOOT (arm64)
-	104, // SYS_KEXEC_LOAD (arm64)
-	294, // SYS_KEXEC_FILE_LOAD (arm64)
+	syscall.SYS_REBOOT,     // SYS_REBOOT
+	syscall.SYS_KEXEC_LOAD, // SYS_KEXEC_LOAD
+	syscall.SYS_UNSHARE,    // SYS_UNSHARE
+	// 여기에 차단할 syscall 추가
 }
 
 func setupSeccomp() {
 	filter := []sockFilter{
 		// 아키텍처 체크
 		bpfStmt(BPF_LD|BPF_W|BPF_ABS, SECCOMP_DATA_ARCH_OFF),
-		bpfJump(BPF_JMP|BPF_JEQ, AUDIT_ARCH_AARCH64, 1, 0), // arm일 경우 1 점프해서 아래있는 err return을 무시한다
+		bpfJump(BPF_JMP|BPF_JEQ, AUDIT_ARCH_AARCH64, 1, 0),
 		bpfStmt(BPF_RET, SECCOMP_RET_ERRNO|uint32(syscall.EPERM)),
 
 		// syscall 번호 로드
 		bpfStmt(BPF_LD|BPF_W|BPF_ABS, SECCOMP_DATA_NR_OFF),
-
-		// 차단 목록 체크 (매칭되면 ERRNO로, 아니면 다음으로)
-		bpfJump(BPF_JMP|BPF_JEQ, 142, 4, 0), // SYS_REBOOT (arm64)
-		bpfJump(BPF_JMP|BPF_JEQ, 104, 3, 0), // SYS_KEXEC_LOAD (arm64)
-		bpfJump(BPF_JMP|BPF_JEQ, 294, 2, 0), // SYS_KEXEC_FILE_LOAD (arm64)
-		bpfJump(BPF_JMP|BPF_JEQ, 97, 1, 0),  // unshare (arm64)
-
-		// 허용
-		bpfStmt(BPF_RET, SECCOMP_RET_ALLOW),
-		// 차단
-		bpfStmt(BPF_RET, SECCOMP_RET_ERRNO|uint32(syscall.EPERM)),
 	}
+
+	// blockedSyscalls에서 자동으로 bpfJump 생성
+	n := len(blockedSyscalls)
+	for i, nr := range blockedSyscalls {
+		// ERRNO 줄까지의 거리: 남은 항목 수 + 1 (ALLOW 줄 건너뜀)
+		jt := uint8(n - i)
+		filter = append(filter, bpfJump(BPF_JMP|BPF_JEQ, nr, jt, 0))
+	}
+
+	// 허용
+	filter = append(filter, bpfStmt(BPF_RET, SECCOMP_RET_ALLOW))
+	// 차단
+	filter = append(filter, bpfStmt(BPF_RET, SECCOMP_RET_ERRNO|uint32(syscall.EPERM)))
 
 	prog := sockFprog{
 		Len:    uint16(len(filter)),
