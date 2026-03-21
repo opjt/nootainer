@@ -94,6 +94,7 @@ func container() {
 
 	pivotRoot(merged)
 	setupSeccomp()
+	dropCapabilities()
 
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
