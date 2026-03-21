@@ -46,7 +46,8 @@ func child() {
 
 	cmd := exec.Command("/proc/self/exe", append([]string{"container"}, os.Args[2:]...)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+
 		UidMappings: []syscall.SysProcIDMap{
 			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
 		},
@@ -65,17 +66,47 @@ func child() {
 
 // container: namespace 안에서 사용자 명령 실행
 func container() {
+
 	syscall.Sethostname([]byte("nootainer"))
-	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
-		log.Fatal(err)
-	}
+
+	pivotRoot("rootfs")
 
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Fatal(err)
+		log.Fatal("exec failed: ", err)
+	}
+}
+
+func pivotRoot(rootfs string) {
+	// 1. rootfs를 bind mount (mount point로 만들기)
+	must(syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""))
+
+	// 2. 기존 루트를 넣을 디렉토리 생성
+	putOld := filepath.Join(rootfs, "put_old")
+	must(os.MkdirAll(putOld, 0700))
+
+	// 3. pivot_root: 루트 교체
+	must(syscall.PivotRoot(rootfs, putOld))
+
+	// 4. 새 루트로 이동
+	if err := os.Chdir("/"); err != nil {
+		log.Fatal("chdir failed: ", err)
+	}
+
+	// 5. proc mount (put_old 해제 전에 해야 부모 proc superblock 참조 유지)
+	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
+		log.Fatal("mount proc failed: ", err)
+	}
+
+	// 6. 기존 루트 해제 및 정리
+	if err := syscall.Unmount("/put_old", syscall.MNT_DETACH); err != nil {
+		log.Fatal("unmount failed: ", err)
+	}
+	if err := os.Remove("/put_old"); err != nil {
+		log.Fatal("remove failed: ", err)
 	}
 }
 
