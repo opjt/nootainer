@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -44,7 +45,12 @@ func run() {
 func child() {
 	setCgroupV2()
 
+	// overlayfs용 임시 디렉토리 생성
+	containerDir, err := os.MkdirTemp("", "nootainer-*")
+	must(err)
+
 	cmd := exec.Command("/proc/self/exe", append([]string{"container"}, os.Args[2:]...)...)
+	cmd.Env = append(os.Environ(), "NOOTAINER_DIR="+containerDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
 
@@ -59,18 +65,34 @@ func child() {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		log.Fatal(err)
+	runErr := cmd.Run()
+	os.RemoveAll(containerDir)
+	if runErr != nil {
+		log.Fatal(runErr)
 	}
 }
 
 // container: namespace 안에서 사용자 명령 실행
 func container() {
+	must(syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""))
 
 	syscall.Sethostname([]byte("nootainer"))
 
-	pivotRoot("rootfs")
-	must(syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")) // 정말 필요한가?
+	// overlayfs 설정
+	containerDir := os.Getenv("NOOTAINER_DIR")
+	wd, _ := os.Getwd()
+	lowerdir := filepath.Join(wd, "rootfs")
+	upper := filepath.Join(containerDir, "upper")
+	work := filepath.Join(containerDir, "work")
+	merged := filepath.Join(containerDir, "merged")
+	must(os.MkdirAll(upper, 0755))
+	must(os.MkdirAll(work, 0755))
+	must(os.MkdirAll(merged, 0755))
+
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerdir, upper, work)
+	must(syscall.Mount("overlay", merged, "overlay", 0, opts))
+
+	pivotRoot(merged)
 
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
