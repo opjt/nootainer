@@ -93,6 +93,7 @@ func container() {
 	must(syscall.Mount("overlay", merged, "overlay", 0, opts))
 
 	pivotRoot(merged)
+	setupSeccomp()
 
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
