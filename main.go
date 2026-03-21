@@ -70,6 +70,7 @@ func container() {
 	syscall.Sethostname([]byte("nootainer"))
 
 	pivotRoot("rootfs")
+	must(syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")) // 정말 필요한가?
 
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
