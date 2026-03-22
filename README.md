@@ -1,8 +1,10 @@
 # nootainer
 
-no-root + container. A rootless container runtime built from scratch in Go.
+no-root + container. A rootless container runtime built from scratch in Go
 
-External dependencies: **none**. Standard library only.
+This project is not intended for production use. It was built to understand how container runtimes work under the hood — namespaces, cgroups, seccomp, capabilities, and OCI image pulling — by implementing everything from scratch without external dependencies.
+
+> Container의 블랙박스를 줄이기 위한 학습 목적의 프로젝트입니다.
 
 - **Namespace isolation** — User, PID, UTS, Mount, IPC, Network
 - **Cgroup v2** — PID/memory limits via rootless cgroup delegation
@@ -17,20 +19,20 @@ nootainer run <image> <cmd>
         │
         ▼
    ┌─────────┐   systemd-run --user --scope
-   │   run    │   (cgroup delegation)
+   │   run   │   (cgroup delegation)
    └────┬────┘
         │      /proc/self/exe child
         ▼
    ┌─────────┐   cgroup v2 limits (pids.max, memory.max)
-   │  child   │   clone(NEWUSER|NEWUTS|NEWNS|...)
+   │  child  │   clone(NEWUSER|NEWUTS|NEWNS|...)
    └────┬────┘
         │      /proc/self/exe container
         ▼
-   ┌──────────┐  overlayfs mount → pivot_root
-   │container │  seccomp BPF filter
-   │          │  capability drop
-   │          │  exec <cmd>
-   └──────────┘
+   ┌───────────┐  overlayfs mount → pivot_root
+   │           │  seccomp BPF filter
+   │ container │  capability drop
+   │           │  exec <cmd>
+   └───────────┘
 ```
 
 ## Environment
