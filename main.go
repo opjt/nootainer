@@ -88,7 +88,9 @@ func container() {
 	// overlayfs 설정
 	containerDir := os.Getenv("NOOTAINER_DIR")
 	wd, _ := os.Getwd()
-	lowerdir := filepath.Join(wd, "rootfs")
+	rootfs := fmt.Sprintf("rootfs_%s", strings.ToLower(os.Args[2]))
+
+	lowerdir := filepath.Join(wd, rootfs)
 	upper := filepath.Join(containerDir, "upper")
 	work := filepath.Join(containerDir, "work")
 	merged := filepath.Join(containerDir, "merged")
@@ -103,7 +105,7 @@ func container() {
 	setupSeccomp()
 	dropCapabilities()
 
-	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd := exec.Command(os.Args[3], os.Args[4:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
