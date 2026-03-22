@@ -3,10 +3,15 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 )
 
 const (
@@ -123,6 +128,83 @@ func getManifest(repoName, tag, token string) (*manifest, error) {
 	return &m, nil
 }
 
+func downloadAndExtractLayer(repoName, digest, token, destDir string) error {
+	url := fmt.Sprintf("%s/v2/%s/blobs/%s", registryURL, repoName, digest)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("blob request create failed: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("blob download failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("blob download returned status %d", resp.StatusCode)
+	}
+
+	gr, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		return fmt.Errorf("gzip reader failed: %w", err)
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("tar read failed: %w", err)
+		}
+
+		target := filepath.Join(destDir, hdr.Name)
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(f, tr); err != nil {
+				f.Close()
+				return err
+			}
+			f.Close()
+		case tar.TypeSymlink:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			os.Remove(target)
+			if err := os.Symlink(hdr.Linkname, target); err != nil {
+				return err
+			}
+		case tar.TypeLink:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
+			os.Remove(target)
+			if err := os.Link(filepath.Join(destDir, hdr.Linkname), target); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func pull(image, tag string) {
 	repoName := "library/" + image
 
@@ -136,9 +218,19 @@ func pull(image, tag string) {
 	if err != nil {
 		log.Fatal("manifest failed:", err)
 	}
+	fmt.Printf("found %d layer(s)\n", len(m.Layers))
 
-	fmt.Printf("found %d layer(s):\n", len(m.Layers))
-	for _, l := range m.Layers {
-		fmt.Printf("  %s (%d bytes)\n", l.Digest[:25]+"...", l.Size)
+	destDir := filepath.Join("rootfs_" + image)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		log.Fatal("mkdir failed:", err)
 	}
+
+	for i, l := range m.Layers {
+		fmt.Printf("downloading layer %d/%d: %s\n", i+1, len(m.Layers), l.Digest[:25]+"...")
+		if err := downloadAndExtractLayer(repoName, l.Digest, token, destDir); err != nil {
+			log.Fatal("layer extract failed:", err)
+		}
+	}
+
+	fmt.Printf("image extracted to %s/\n", destDir)
 }
