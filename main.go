@@ -20,6 +20,13 @@ func main() {
 		child()
 	case "container":
 		container()
+	case "pull":
+		image := os.Args[2]
+		tag := "latest"
+		if len(os.Args) > 3 {
+			tag = os.Args[3]
+		}
+		pull(image, tag)
 	default:
 		log.Fatal("unknown command")
 	}
