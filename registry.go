@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 const (
@@ -99,13 +100,13 @@ func getManifest(repoName, tag, token string) (*manifest, error) {
 	// 2단계: linux/amd64 manifest digest 찾기
 	var digest string
 	for _, m := range index.Manifests {
-		if m.Platform.Architecture == "amd64" && m.Platform.OS == "linux" {
+		if m.Platform.Architecture == runtime.GOARCH && m.Platform.OS == "linux" {
 			digest = m.Digest
 			break
 		}
 	}
 	if digest == "" {
-		return nil, fmt.Errorf("no linux/amd64 manifest found")
+		return nil, fmt.Errorf("no linux/%s manifest found", runtime.GOARCH)
 	}
 
 	// 3단계: 실제 manifest 가져오기
