@@ -59,7 +59,13 @@ func child() {
 	cmd := exec.Command("/proc/self/exe", append([]string{"container"}, os.Args[2:]...)...)
 	cmd.Env = append(os.Environ(), "NOOTAINER_DIR="+containerDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+		Cloneflags: syscall.CLONE_NEWUSER |
+			syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWPID |
+			syscall.CLONE_NEWIPC |
+			syscall.CLONE_NEWNET |
+			syscall.CLONE_NEWCGROUP,
 
 		UidMappings: []syscall.SysProcIDMap{
 			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
@@ -130,9 +136,12 @@ func pivotRoot(rootfs string) {
 		log.Fatal("chdir failed: ", err)
 	}
 
-	// 5. proc mount (put_old 해제 전에 해야 부모 proc superblock 참조 유지)
+	// 5. proc,sys mount (put_old 해제 전에 해야 부모 proc superblock 참조 유지)
 	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
 		log.Fatal("mount proc failed: ", err)
+	}
+	if err := syscall.Mount("sysfs", "/sys", "sysfs", 0, ""); err != nil {
+		log.Fatal("mount sysfs failed: ", err)
 	}
 
 	// 6. 기존 루트 해제 및 정리
